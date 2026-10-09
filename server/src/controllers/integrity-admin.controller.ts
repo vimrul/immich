@@ -12,6 +12,7 @@ import {
 import { ApiTag, Permission } from 'src/enum.js';
 import { Auth, Authenticated, FileResponse } from 'src/middleware/auth.guard.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { IntegrityService } from 'src/services/integrity.service.js';
 import { sendFile } from 'src/utils/file.js';
 import { UUIDv7ParamDto } from 'src/validation.js';
@@ -22,6 +23,7 @@ export class IntegrityAdminController {
   constructor(
     private logger: LoggingRepository,
     private service: IntegrityService,
+    private storageRepository: StorageRepository,
   ) {}
 
   @Get('summary')
@@ -60,7 +62,7 @@ export class IntegrityAdminController {
     @Res() res: Response,
     @Next() next: NextFunction,
   ): Promise<void> {
-    await sendFile(res, next, () => this.service.getIntegrityReportFile(id), this.logger);
+    await sendFile(res, next, () => this.service.getIntegrityReportFile(id), this.logger, this.storageRepository);
   }
 
   @Delete('report/:id')

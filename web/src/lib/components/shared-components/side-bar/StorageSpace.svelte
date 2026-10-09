@@ -9,6 +9,7 @@
   import { t } from 'svelte-i18n';
 
   let hasQuota = $derived(authManager.user.quotaSizeInBytes !== null);
+  let hasUnknownCapacity = $derived(!hasQuota && userInteraction.serverInfo?.diskSizeRaw === 0);
   let availableBytes = $derived(
     (hasQuota && authManager.authenticated
       ? authManager.user.quotaSizeInBytes
@@ -35,28 +36,37 @@
 
 <div
   class="ms-4 min-w-52 rounded-lg bg-light-100 p-4 text-sm"
-  title={$t('storage_usage', {
-    values: {
-      used: getByteUnitString(usedBytes, $locale, 3),
-      available: getByteUnitString(availableBytes, $locale, 3),
-    },
-  })}
->
-  {#if userInteraction.serverInfo}
-    <Meter
-      size="tiny"
-      class="bg-light-200"
-      containerClass="gap-2 leading-6"
-      label={$t('storage')}
-      valueLabel={$t('storage_usage', {
+  title={hasUnknownCapacity
+    ? userInteraction.serverInfo?.diskSize
+    : $t('storage_usage', {
         values: {
-          used: getByteUnitString(usedBytes, $locale),
-          available: getByteUnitString(availableBytes, $locale),
+          used: getByteUnitString(usedBytes, $locale, 3),
+          available: getByteUnitString(availableBytes, $locale, 3),
         },
       })}
-      value={usedBytes / availableBytes}
-      {thresholds}
-    />
+>
+  {#if userInteraction.serverInfo}
+    {#if hasUnknownCapacity}
+      <div class="leading-6">
+        <p class="mb-4 font-medium text-immich-dark-gray dark:text-white">{$t('storage')}</p>
+        <p>{userInteraction.serverInfo.diskSize}</p>
+      </div>
+    {:else}
+      <Meter
+        size="tiny"
+        class="bg-light-200"
+        containerClass="gap-2 leading-6"
+        label={$t('storage')}
+        valueLabel={$t('storage_usage', {
+          values: {
+            used: getByteUnitString(usedBytes, $locale),
+            available: getByteUnitString(availableBytes, $locale),
+          },
+        })}
+        value={usedBytes / availableBytes}
+        {thresholds}
+      />
+    {/if}
   {:else}
     <p class="mb-4 font-medium text-immich-dark-gray dark:text-white">{$t('storage')}</p>
     <LoadingSpinner />

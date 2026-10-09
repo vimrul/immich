@@ -7,6 +7,7 @@ import { AssetFileResponseDto, AssetFileSearchDto } from 'src/dtos/asset-file.dt
 import { ApiTag, Permission } from 'src/enum.js';
 import { Auth, Authenticated, FileResponse } from 'src/middleware/auth.guard.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { AssetFileService } from 'src/services/asset-file.service.js';
 import { sendFile } from 'src/utils/file.js';
 import { UUIDParamDto } from 'src/validation.js';
@@ -17,6 +18,7 @@ export class AssetFilesController {
   constructor(
     private service: AssetFileService,
     private logger: LoggingRepository,
+    private storageRepository: StorageRepository,
   ) {}
 
   @Get()
@@ -67,6 +69,6 @@ export class AssetFilesController {
     @Res() res: Response,
     @Next() next: NextFunction,
   ) {
-    await sendFile(res, next, () => this.service.download(auth, id), this.logger);
+    await sendFile(res, next, () => this.service.download(auth, id), this.logger, this.storageRepository);
   }
 }

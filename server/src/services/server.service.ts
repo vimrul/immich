@@ -68,9 +68,20 @@ export class ServerService extends BaseService {
     const libraryBase = StorageCore.getBaseFolder(StorageFolder.Library);
     const diskInfo = await this.storageRepository.checkDiskUsage(libraryBase);
 
-    const usagePercentage = (((diskInfo.total - diskInfo.free) / diskInfo.total) * 100).toFixed(2);
-
     const serverInfo = new ServerStorageResponseDto();
+    if (diskInfo.objectStorage) {
+      serverInfo.diskAvailable = 'Not reported';
+      serverInfo.diskSize = 'S3 object storage';
+      serverInfo.diskUse = 'Not reported';
+      serverInfo.diskAvailableRaw = 0;
+      serverInfo.diskSizeRaw = 0;
+      serverInfo.diskUseRaw = 0;
+      serverInfo.diskUsagePercentage = 0;
+      return serverInfo;
+    }
+
+    const usagePercentage =
+      diskInfo.total > 0 ? (((diskInfo.total - diskInfo.free) / diskInfo.total) * 100).toFixed(2) : '0';
     serverInfo.diskAvailable = asHumanReadable(diskInfo.available);
     serverInfo.diskSize = asHumanReadable(diskInfo.total);
     serverInfo.diskUse = asHumanReadable(diskInfo.total - diskInfo.free);

@@ -30,6 +30,7 @@ import { MaintenanceRoute } from 'src/maintenance/maintenance-auth.guard.js';
 import { MaintenanceWorkerService } from 'src/maintenance/maintenance-worker.service.js';
 import { GetLoginDetails } from 'src/middleware/auth.guard.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { DatabaseBackupService } from 'src/services/database-backup.service.js';
 import { sendFile } from 'src/utils/file.js';
 import { respondWithCookie } from 'src/utils/response.js';
@@ -41,6 +42,7 @@ export class MaintenanceWorkerController {
     private logger: LoggingRepository,
     private service: MaintenanceWorkerService,
     private databaseBackupService: DatabaseBackupService,
+    private storageRepository: StorageRepository,
   ) {}
 
   /**
@@ -80,7 +82,13 @@ export class MaintenanceWorkerController {
     @Res() res: Response,
     @Next() next: NextFunction,
   ) {
-    await sendFile(res, next, () => this.databaseBackupService.downloadBackup(filename), this.logger);
+    await sendFile(
+      res,
+      next,
+      () => this.databaseBackupService.downloadBackup(filename),
+      this.logger,
+      this.storageRepository,
+    );
   }
 
   /**

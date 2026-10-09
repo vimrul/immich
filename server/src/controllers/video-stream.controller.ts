@@ -15,6 +15,7 @@ import {
 import { ApiTag, ImmichHeader, Permission, RouteKey } from 'src/enum.js';
 import { Auth, Authenticated, FileResponse } from 'src/middleware/auth.guard.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { HlsService } from 'src/services/hls.service.js';
 import { sendFile } from 'src/utils/file.js';
 import { UUIDParamDto } from 'src/validation.js';
@@ -25,6 +26,7 @@ export class VideoStreamController {
   constructor(
     private logger: LoggingRepository,
     private service: HlsService,
+    private storageRepository: StorageRepository,
   ) {}
 
   @Get(':id/video/stream/main.m3u8')
@@ -89,6 +91,7 @@ export class VideoStreamController {
       next,
       () => this.service.getSegment(auth, id, sessionId, variantIndex, filename, headers[ImmichHeader.HlsInitSegment]),
       this.logger,
+      this.storageRepository,
     );
   }
 

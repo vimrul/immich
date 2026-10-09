@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { ExifDateTime, WriteTags, exiftool } from 'exiftool-vendored';
 import ffmpeg, { FfprobeData, FfprobeStream } from 'fluent-ffmpeg';
 import { camelCase, upperFirst } from 'lodash-es';
@@ -37,6 +37,7 @@ import {
   RawExtractedFormat,
 } from 'src/enum.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { handlePromiseError } from 'src/utils/misc.js';
 import { createAffineMatrix } from 'src/utils/transform.js';
 
@@ -64,7 +65,10 @@ export type ExtractResult = {
 
 @Injectable()
 export class MediaRepository {
-  constructor(private logger: LoggingRepository) {
+  constructor(
+    private logger: LoggingRepository,
+    @Optional() private storageRepository?: StorageRepository,
+  ) {
     this.logger.setContext(MediaRepository.name);
     // eslint-disable-next-line import-x/no-named-as-default-member
     sharp.concurrency(0);
@@ -78,6 +82,13 @@ export class MediaRepository {
    * @returns ExtractResult if succeeded, or null if failed
    */
   async extract(input: string): Promise<ExtractResult | null> {
+    if (this.storageRepository) {
+      return this.storageRepository.withLocalFile(input, 'read', (localPath) => this.extractLocal(localPath));
+    }
+    return this.extractLocal(input);
+  }
+
+  private async extractLocal(input: string): Promise<ExtractResult | null> {
     for (const { tag, format } of [
       { tag: 'JpgFromRaw2', format: RawExtractedFormat.Jpeg },
       { tag: 'JpgFromRaw', format: RawExtractedFormat.Jpeg },
@@ -96,6 +107,15 @@ export class MediaRepository {
   }
 
   async writeExif(tags: Partial<Exif>, output: string): Promise<boolean> {
+    if (this.storageRepository) {
+      return this.storageRepository.withLocalFile(output, 'readwrite', (localPath) =>
+        this.writeExifLocal(tags, localPath),
+      );
+    }
+    return this.writeExifLocal(tags, output);
+  }
+
+  private async writeExifLocal(tags: Partial<Exif>, output: string): Promise<boolean> {
     try {
       const tagsToWrite: WriteTags = {
         ExifImageWidth: tags.exifImageWidth,
@@ -134,6 +154,17 @@ export class MediaRepository {
   }
 
   async copyTagGroup(tagGroup: string, source: string, target: string): Promise<boolean> {
+    if (this.storageRepository) {
+      return this.storageRepository.withLocalFile(source, 'read', (localSource) =>
+        this.storageRepository!.withLocalFile(target, 'readwrite', (localTarget) =>
+          this.copyTagGroupLocal(tagGroup, localSource, localTarget),
+        ),
+      );
+    }
+    return this.copyTagGroupLocal(tagGroup, source, target);
+  }
+
+  private async copyTagGroupLocal(tagGroup: string, source: string, target: string): Promise<boolean> {
     try {
       await exiftool.write(
         target,
@@ -151,6 +182,15 @@ export class MediaRepository {
   }
 
   async decodeImage(input: string | Buffer, options: DecodeToBufferOptions): Promise<Bitmap> {
+    if (typeof input === 'string' && this.storageRepository) {
+      return this.storageRepository.withLocalFile(input, 'read', (localPath) =>
+        this.decodeImageLocal(localPath, options),
+      );
+    }
+    return this.decodeImageLocal(input, options);
+  }
+
+  private async decodeImageLocal(input: string | Buffer, options: DecodeToBufferOptions): Promise<Bitmap> {
     const decoded = await this.getImageDecodingPipeline(input, options).raw().toBuffer({ resolveWithObject: true });
     return await this.transform(decoded, options);
   }
@@ -179,6 +219,20 @@ export class MediaRepository {
   }
 
   async generateThumbnail(image: Bitmap, options: GenerateThumbnailOptions, output: string): Promise<void> {
+    if (this.storageRepository) {
+      await this.storageRepository.withLocalFile(output, 'write', (localPath) =>
+        this.generateThumbnailLocal(image, options, localPath),
+      );
+      return;
+    }
+    return this.generateThumbnailLocal(image, options, output);
+  }
+
+  private async generateThumbnailLocal(
+    image: Bitmap,
+    options: GenerateThumbnailOptions,
+    output: string,
+  ): Promise<void> {
     const transformed = await this.transform(image, options);
     await this.tag(transformed, options.colorspace)
       .toFormat(options.format, {
@@ -253,6 +307,13 @@ export class MediaRepository {
   }
 
   async probe(input: string, options?: ProbeOptions): Promise<VideoInfo> {
+    if (this.storageRepository) {
+      return this.storageRepository.withLocalFile(input, 'read', (localPath) => this.probeLocal(localPath, options));
+    }
+    return this.probeLocal(input, options);
+  }
+
+  private async probeLocal(input: string, options?: ProbeOptions): Promise<VideoInfo> {
     const results = await probe(input, options?.countFrames ? ['-count_packets'] : []); // gets frame count quickly: https://stackoverflow.com/a/28376817
     return {
       format: {
@@ -308,6 +369,15 @@ export class MediaRepository {
    * Scanning packets for keyframes in JS is much faster than -skip_frame nokey since it avoids decoding the video.
    */
   probePackets(input: string, streamIndex: number): Promise<VideoPacketInfo | null> {
+    if (this.storageRepository) {
+      return this.storageRepository.withLocalFile(input, 'read', (localPath) =>
+        this.probePacketsLocal(localPath, streamIndex),
+      );
+    }
+    return this.probePacketsLocal(input, streamIndex);
+  }
+
+  private probePacketsLocal(input: string, streamIndex: number): Promise<VideoPacketInfo | null> {
     const ffprobe = spawn(
       'ffprobe',
       [
@@ -395,6 +465,20 @@ export class MediaRepository {
   }
 
   transcode(input: string, output: string | Writable, options: TranscodeCommand): Promise<void> {
+    if (this.storageRepository) {
+      return this.storageRepository.withLocalFile(input, 'read', (localInput) => {
+        if (typeof output !== 'string') {
+          return this.transcodeLocal(localInput, output, options);
+        }
+        return this.storageRepository!.withLocalFile(output, 'write', (localOutput) =>
+          this.transcodeLocal(localInput, localOutput, options),
+        );
+      });
+    }
+    return this.transcodeLocal(input, output, options);
+  }
+
+  private transcodeLocal(input: string, output: string | Writable, options: TranscodeCommand): Promise<void> {
     if (!options.twoPass) {
       return new Promise((resolve, reject) => {
         this.configureFfmpegCall(input, output, options)
@@ -433,6 +517,13 @@ export class MediaRepository {
   }
 
   async getImageMetadata(input: string | Buffer): Promise<ImageDimensions & { isTransparent: boolean }> {
+    if (typeof input === 'string' && this.storageRepository) {
+      return this.storageRepository.withLocalFile(input, 'read', (localPath) => this.getImageMetadataLocal(localPath));
+    }
+    return this.getImageMetadataLocal(input);
+  }
+
+  private async getImageMetadataLocal(input: string | Buffer): Promise<ImageDimensions & { isTransparent: boolean }> {
     const { width = 0, height = 0, hasAlpha = false } = await sharp(input, { unlimited: true }).metadata();
     return { width, height, isTransparent: hasAlpha };
   }

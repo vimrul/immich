@@ -204,6 +204,7 @@ export class TranscodingService extends BaseService {
       variantIndex,
     });
     this.storageRepository.mkdirSync(variantDir);
+    const localVariantDir = this.storageRepository.getLocalPath(variantDir);
 
     // Encoder runs at fps = packetCount × timeBase / totalDuration with
     // gop = ceil(SEGMENT_DURATION × fps). To start segment K's content at
@@ -235,29 +236,38 @@ export class TranscodingService extends BaseService {
       await this.failSession(session, `Failed to start transcode: ${error?.message ?? 'unknown error'}`);
       return;
     }
-    const args = config.getHlsCommand(
-      {
-        initFilename: 'init.mp4',
-        inputPath: asset.originalPath,
-        packetCount: asset.packets.packetCount,
-        playlistFilename: join(variantDir, 'playlist.m3u8'),
-        seekSeconds,
-        segmentDuration: HLS_SEGMENT_DURATION,
-        segmentFilename: join(variantDir, 'seg_%d.m4s'),
-        startSegment,
-        target: TranscodeTarget.All,
-        timeBase: asset.videoStream.timeBase,
-        totalDuration: asset.packets.totalDuration,
-      },
-      asset.videoStream,
-      asset.audioStream ?? undefined,
-    );
-    this.logger.log(
-      `Starting HLS transcode for asset ${session.assetId} variant ${variantIndex} with command: ffmpeg ${args.join(' ')}`,
-    );
-    const process = this.processRepository.spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
-    this.attachProcessHandlers(process, session, variantIndex);
-    return process;
+    const localInput = await this.storageRepository.materializeFile(asset.originalPath, 'read');
+    try {
+      const args = config.getHlsCommand(
+        {
+          initFilename: 'init.mp4',
+          inputPath: localInput.path,
+          packetCount: asset.packets.packetCount,
+          playlistFilename: join(localVariantDir, 'playlist.m3u8'),
+          seekSeconds,
+          segmentDuration: HLS_SEGMENT_DURATION,
+          segmentFilename: join(localVariantDir, 'seg_%d.m4s'),
+          startSegment,
+          target: TranscodeTarget.All,
+          timeBase: asset.videoStream.timeBase,
+          totalDuration: asset.packets.totalDuration,
+        },
+        asset.videoStream,
+        asset.audioStream ?? undefined,
+      );
+      this.logger.log(
+        `Starting HLS transcode for asset ${session.assetId} variant ${variantIndex} with command: ffmpeg ${args.join(' ')}`,
+      );
+      const process = this.processRepository.spawn('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+      process.once('close', () => {
+        void localInput.cleanup().catch((error) => this.logger.warn(`Failed to clean up HLS input: ${error}`));
+      });
+      this.attachProcessHandlers(process, session, variantIndex);
+      return process;
+    } catch (error) {
+      await localInput.cleanup();
+      throw error;
+    }
   }
 
   private failSession(session: Session, error: string) {

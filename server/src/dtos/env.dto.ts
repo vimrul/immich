@@ -50,6 +50,12 @@ export const EnvSchema = z
     IMMICH_LOG_LEVEL: LogLevelSchema.optional(),
     IMMICH_LOG_FORMAT: LogFormatSchema.optional(),
     IMMICH_MEDIA_LOCATION: absolutePath,
+    IMMICH_STORAGE_BACKEND: z.enum(['filesystem', 's3']).default('filesystem'),
+    IMMICH_S3_BUCKET: z.string().min(1).optional(),
+    IMMICH_S3_REGION: z.string().default('us-east-1'),
+    IMMICH_S3_ENDPOINT: z.url().optional(),
+    IMMICH_S3_PREFIX: z.string().optional(),
+    IMMICH_S3_FORCE_PATH_STYLE: stringBool.optional(),
     IMMICH_MICROSERVICES_METRICS_PORT: z.coerce.number().int().optional(),
     IMMICH_ALLOW_EXTERNAL_PLUGINS: stringBool.optional(),
     IMMICH_PLUGINS_INSTALL_FOLDER: absolutePath,
@@ -86,5 +92,14 @@ export const EnvSchema = z
     REDIS_PASSWORD: z.string().optional(),
     REDIS_SOCKET: z.string().optional(),
     REDIS_URL: z.string().optional(),
+  })
+  .superRefine((env, context) => {
+    if (env.IMMICH_STORAGE_BACKEND === 's3' && !env.IMMICH_S3_BUCKET) {
+      context.addIssue({
+        code: 'custom',
+        path: ['IMMICH_S3_BUCKET'],
+        message: 'IMMICH_S3_BUCKET is required when IMMICH_STORAGE_BACKEND is s3',
+      });
+    }
   })
   .meta({ id: 'EnvDto' });

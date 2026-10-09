@@ -12,6 +12,7 @@ import {
 import { ApiTag, ImmichCookie, Permission } from 'src/enum.js';
 import { Authenticated, FileResponse, GetLoginDetails } from 'src/middleware/auth.guard.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { DatabaseBackupService } from 'src/services/database-backup.service.js';
 import { MaintenanceService } from 'src/services/maintenance.service.js';
 import { sendFile } from 'src/utils/file.js';
@@ -25,6 +26,7 @@ export class DatabaseBackupController {
     private logger: LoggingRepository,
     private service: DatabaseBackupService,
     private maintenanceService: MaintenanceService,
+    private storageRepository: StorageRepository,
   ) {}
 
   @Get()
@@ -51,7 +53,7 @@ export class DatabaseBackupController {
     @Res() res: Response,
     @Next() next: NextFunction,
   ): Promise<void> {
-    await sendFile(res, next, () => this.service.downloadBackup(filename), this.logger);
+    await sendFile(res, next, () => this.service.downloadBackup(filename), this.logger, this.storageRepository);
   }
 
   @Delete()

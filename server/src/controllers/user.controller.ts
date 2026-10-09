@@ -29,6 +29,7 @@ import { ApiTag, Permission, RouteKey } from 'src/enum.js';
 import { Auth, Authenticated, FileResponse } from 'src/middleware/auth.guard.js';
 import { FileUploadInterceptor } from 'src/middleware/file-upload.interceptor.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { UserService } from 'src/services/user.service.js';
 import { sendFile } from 'src/utils/file.js';
 import { UUIDParamDto } from 'src/validation.js';
@@ -39,6 +40,7 @@ export class UserController {
   constructor(
     private service: UserService,
     private logger: LoggingRepository,
+    private storageRepository: StorageRepository,
   ) {}
 
   @Get()
@@ -244,6 +246,6 @@ export class UserController {
     history: new HistoryBuilder().added('v1').beta('v1').stable('v2'),
   })
   async getProfileImage(@Res() res: Response, @Next() next: NextFunction, @Param() { id }: UUIDParamDto) {
-    await sendFile(res, next, () => this.service.getProfileImage(id), this.logger);
+    await sendFile(res, next, () => this.service.getProfileImage(id), this.logger, this.storageRepository);
   }
 }

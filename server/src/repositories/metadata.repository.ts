@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { BinaryField, DefaultReadTaskOptions, ExifTool, ReadTaskOptions, Tags } from 'exiftool-vendored';
 import geotz from 'geo-tz';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 import { mimeTypes } from 'src/utils/mime-types.js';
 
 interface ExifDuration {
@@ -114,7 +115,10 @@ export class MetadataRepository {
     taskTimeoutMillis: 2 * 60 * 1000,
   });
 
-  constructor(private logger: LoggingRepository) {
+  constructor(
+    private logger: LoggingRepository,
+    @Optional() private storageRepository?: StorageRepository,
+  ) {
     this.logger.setContext(MetadataRepository.name);
   }
 
@@ -128,15 +132,18 @@ export class MetadataRepository {
 
   readTags(path: string): Promise<ImmichTags> {
     const options: ReadTaskOptions | undefined = mimeTypes.isVideo(path) ? { readArgs: ['-ee'] } : undefined;
+    const read = (localPath: string) =>
+      this.exiftool.read(localPath, options).catch((error) => {
+        this.logger.warn(`Error reading exif data (${path}): ${error}\n${error?.stack}`);
+        return {};
+      }) as Promise<ImmichTags>;
 
-    return this.exiftool.read(path, options).catch((error) => {
-      this.logger.warn(`Error reading exif data (${path}): ${error}\n${error?.stack}`);
-      return {};
-    }) as Promise<ImmichTags>;
+    return this.storageRepository ? this.storageRepository.withLocalFile(path, 'read', read) : read(path);
   }
 
   extractBinaryTag(path: string, tagName: string): Promise<Buffer> {
-    return this.exiftool.extractBinaryTagToBuffer(tagName, path);
+    const extract = (localPath: string) => this.exiftool.extractBinaryTagToBuffer(tagName, localPath);
+    return this.storageRepository ? this.storageRepository.withLocalFile(path, 'read', extract) : extract(path);
   }
 
   async writeTags(path: string, tags: Partial<Tags>): Promise<void> {
@@ -145,7 +152,13 @@ export class MetadataRepository {
     // https://exiftool.org/exiftool_pod.html#:~:text=is%20used%20to%20write%20an%20empty%20string
     const tagsToWrite = Object.fromEntries(Object.entries(tags).map(([key, value]) => [`${key}^`, value]));
     try {
-      await this.exiftool.write(path, tagsToWrite);
+      const write = (localPath: string) => this.exiftool.write(localPath, tagsToWrite);
+      if (this.storageRepository) {
+        const mode = (await this.storageRepository.checkFileExists(path)) ? 'readwrite' : 'write';
+        await this.storageRepository.withLocalFile(path, mode, write);
+      } else {
+        await write(path);
+      }
     } catch (error) {
       this.logger.warn(`Error writing exif data (${path}): ${error}`);
     }

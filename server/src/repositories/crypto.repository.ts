@@ -1,11 +1,14 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { compareSync, hash } from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { createHash, createPublicKey, createVerify, randomBytes, randomUUID } from 'node:crypto';
 import { createReadStream } from 'node:fs';
+import { StorageRepository } from 'src/repositories/storage.repository.js';
 
 @Injectable()
 export class CryptoRepository {
+  constructor(@Optional() private storageRepository?: StorageRepository) {}
+
   randomUUID(): string {
     return randomUUID();
   }
@@ -46,6 +49,13 @@ export class CryptoRepository {
   }
 
   hashFile(filepath: string | Buffer): Promise<Buffer> {
+    if (typeof filepath === 'string' && this.storageRepository) {
+      return this.storageRepository.withLocalFile(filepath, 'read', (localPath) => this.hashLocalFile(localPath));
+    }
+    return this.hashLocalFile(filepath);
+  }
+
+  private hashLocalFile(filepath: string | Buffer): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const hash = createHash('sha1');
       const stream = createReadStream(filepath);

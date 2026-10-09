@@ -36,6 +36,12 @@ These environment variables are used by the `docker-compose.yml` file and do **N
 | `IMMICH_LOG_LEVEL`                  | Log level (verbose, debug, log, warn, error)                                                                                                                         |            `log`             | server, machine learning | api, microservices |
 | `IMMICH_LOG_FORMAT`                 | Log output format (`console`, `json`)                                                                                                                                |          `console`           | server                   | api, microservices |
 | `IMMICH_MEDIA_LOCATION`             | Media location inside the container ⚠️**You probably shouldn't set this**<sup>\*2</sup>⚠️                                                                            |           `/data`            | server                   | api, microservices |
+| `IMMICH_STORAGE_BACKEND`            | Storage backend (`filesystem` or `s3`)                                                                                                                               |         `filesystem`         | server                   | api, microservices |
+| `IMMICH_S3_BUCKET`                  | S3 bucket used for Immich-managed media (required when the S3 backend is enabled)                                                                                    |                              | server                   | api, microservices |
+| `IMMICH_S3_REGION`                  | S3 bucket region                                                                                                                                                     |         `us-east-1`          | server                   | api, microservices |
+| `IMMICH_S3_ENDPOINT`                | Optional endpoint URL for an S3-compatible provider                                                                                                                  |                              | server                   | api, microservices |
+| `IMMICH_S3_PREFIX`                  | Optional key prefix inside the bucket                                                                                                                                |                              | server                   | api, microservices |
+| `IMMICH_S3_FORCE_PATH_STYLE`        | Force path-style bucket URLs; defaults to `true` when an endpoint is set                                                                                             |      endpoint dependent      | server                   | api, microservices |
 | `IMMICH_CONFIG_FILE`                | Path to config file                                                                                                                                                  |                              | server                   | api, microservices |
 | `IMMICH_HELMET_FILE`                | Path to a json file with [helmet](https://www.npmjs.com/package/helmet) options. Set to `false` to disable. Set to `true` to use `server/helmet.json`<sup>\*3</sup>. |           `false`            | server                   | api                |
 | `NO_COLOR`                          | Set to `true` to disable color-coded log output                                                                                                                      |           `false`            | server, machine learning |                    |
@@ -53,6 +59,29 @@ These environment variables are used by the `docker-compose.yml` file and do **N
 \*2: This path is where the Immich code looks for the files, which is internal to the docker container. Setting it to a path on your host will certainly break things, you should use the `UPLOAD_LOCATION` variable instead.
 
 \*3: The [default configuration](https://helmetjs.github.io/#content-security-policy) sets `upgrade-insecure-requests`, which tells the browser to upgrade all requests to HTTPS. This breaks on HTTP-only deployments. If you cannot use HTTPS, you should use a custom helmet config file with `"upgrade-insecure-requests": null`.
+
+### S3 object storage
+
+Set `IMMICH_STORAGE_BACKEND=s3` and configure the bucket and region. The AWS SDK uses its standard credential provider chain, including `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` from the Compose environment or the container/instance role. Do not set static credentials when a role is available.
+
+For S3-compatible services, set `IMMICH_S3_ENDPOINT` to the provider URL. The path-style setting defaults to `true` when an endpoint is configured and can be overridden for providers that require virtual-hosted URLs.
+
+Immich stores all of its managed storage folders under the configured bucket and optional prefix. Keep `IMMICH_MEDIA_LOCATION` at `/data` in the standard Docker deployment. To move an existing instance, copy the contents of the current `UPLOAD_LOCATION` into the bucket/prefix while preserving relative paths, then enable the S3 backend. Immich does not copy existing files during startup. Keep local temporary storage available for media processing and HLS sessions. External libraries still need filesystem paths that the server can watch.
+
+Example Compose environment:
+
+```dotenv
+IMMICH_STORAGE_BACKEND=s3
+IMMICH_S3_BUCKET=my-immich-media
+IMMICH_S3_REGION=us-east-1
+IMMICH_S3_PREFIX=production
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+```
+
+The bucket must already exist. Immich only accesses objects within the configured bucket and prefix. Give its identity permission to list, read, write, copy, and delete objects in that location.
+
+S3 does not provide a general bucket capacity value, so the server reports object-storage capacity as unavailable. Per-user quotas continue to use Immich's tracked asset usage.
 
 ## Workers
 

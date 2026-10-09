@@ -47,6 +47,24 @@ export const newStorageRepositoryMock = (): Mocked<RepositoryInterface<StorageRe
   StorageCore.setMediaLocation('/data');
 
   return {
+    isObjectStoragePath: vitest.fn().mockReturnValue(false),
+    getLocalPath: vitest.fn().mockImplementation((filepath: string) => filepath),
+    materializeFile: vitest.fn().mockImplementation((filepath: string) =>
+      Promise.resolve({
+        path: filepath,
+        commit: async () => {},
+        cleanup: async () => {},
+      }),
+    ),
+    withLocalFile: vitest
+      .fn()
+      .mockImplementation(
+        async <T>(
+          filepath: string,
+          _mode: 'read' | 'write' | 'readwrite',
+          callback: (localPath: string) => Promise<T>,
+        ) => callback(filepath),
+      ) as Mocked<StorageRepository>['withLocalFile'],
     createZipStream: vitest.fn(),
     createPlainReadStream: vitest.fn(),
     createReadStream: vitest.fn(),

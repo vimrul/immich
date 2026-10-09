@@ -2,10 +2,11 @@ import { NotFoundException, StreamableFile } from '@nestjs/common';
 import { NextFunction, Response } from 'express';
 import { access, constants } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { CacheControl } from 'src/enum.js';
 import { LoggingRepository } from 'src/repositories/logging.repository.js';
-import { ImmichReadStream } from 'src/repositories/storage.repository.js';
+import { ImmichReadStream, StorageRepository } from 'src/repositories/storage.repository.js';
 import { onRouteError } from 'src/utils/logger.js';
 
 export function getFileNameWithoutExtension(path: string): string {
@@ -49,6 +50,7 @@ export const sendFile = async (
   next: NextFunction,
   handler: () => Promise<ImmichFileResponse> | ImmichFileResponse,
   logger: LoggingRepository,
+  storageRepository?: StorageRepository,
 ): Promise<void> => {
   // promisified version of 'res.sendFile' for cleaner async handling
   const _sendFile = (path: string, options: SendFileOptions) =>
@@ -57,7 +59,39 @@ export const sendFile = async (
   try {
     const file = await handler();
 
-    await access(file.path, constants.R_OK);
+    if (storageRepository?.isObjectStoragePath(file.path)) {
+      const stats = await storageRepository.stat(file.path);
+      const rangeHeader = res.req.headers['if-range'] ? undefined : res.req.headers.range;
+      const range = rangeHeader ? parseByteRange(rangeHeader, stats.size) : null;
+      if (range === 'unsatisfiable') {
+        res.setHeader('Content-Range', `bytes */${stats.size}`);
+        res.status(416).end();
+        return;
+      }
+
+      const response = await storageRepository.createReadStream(file.path, file.contentType, range ?? undefined);
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Content-Type', file.contentType);
+      if (file.fileName) {
+        res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
+      }
+      const cacheControlHeader = cacheControlHeaders[file.cacheControl];
+      if (cacheControlHeader) {
+        res.setHeader('Cache-Control', cacheControlHeader);
+      }
+      if (response.contentRange) {
+        res.status(206);
+        res.setHeader('Content-Range', response.contentRange);
+      }
+      if (response.length !== undefined) {
+        res.setHeader('Content-Length', response.length);
+      }
+      await pipeline(response.stream, res);
+      return;
+    }
+
+    const localPath = storageRepository?.getLocalPath(file.path) ?? file.path;
+    await access(localPath, constants.R_OK);
 
     const cacheControlHeader = cacheControlHeaders[file.cacheControl];
     if (cacheControlHeader) {
@@ -70,13 +104,40 @@ export const sendFile = async (
       res.header('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`);
     }
 
-    return await _sendFile(file.path, { dotfiles: 'allow' });
+    return await _sendFile(localPath, { dotfiles: 'allow' });
   } catch (error: Error | any) {
     const { canWrite } = onRouteError(undefined, res, error, logger);
     if (canWrite) {
       next(new NotFoundException());
     }
   }
+};
+
+const parseByteRange = (header: string, size: number): 'unsatisfiable' | null | { start: number; end: number } => {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!match || size <= 0 || (!match[1] && !match[2])) {
+    return match ? 'unsatisfiable' : null;
+  }
+
+  const hasStart = match[1] !== '';
+  const hasEnd = match[2] !== '';
+  let start = hasStart ? Number(match[1]) : NaN;
+  let end = hasEnd ? Number(match[2]) : NaN;
+  if (hasStart) {
+    end = hasEnd ? Math.min(end, size - 1) : size - 1;
+  } else {
+    const suffixLength = end;
+    if (!suffixLength) {
+      return 'unsatisfiable';
+    }
+    start = Math.max(0, size - suffixLength);
+    end = size - 1;
+  }
+
+  if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || start >= size || end < start) {
+    return 'unsatisfiable';
+  }
+  return { start, end };
 };
 
 export const asStreamableFile = ({ stream, type, disposition, length }: ImmichReadStream) => {

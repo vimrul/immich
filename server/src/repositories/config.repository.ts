@@ -114,6 +114,14 @@ export interface EnvData {
   storage: {
     ignoreMountCheckErrors: boolean;
     mediaLocation?: string;
+    backend?: 'filesystem' | 's3';
+    s3?: {
+      bucket?: string;
+      region: string;
+      endpoint?: string;
+      prefix?: string;
+      forcePathStyle: boolean;
+    };
   };
 
   workers: ImmichWorker[];
@@ -355,6 +363,14 @@ const getEnv = (): EnvData => {
     storage: {
       ignoreMountCheckErrors: !!dto.IMMICH_IGNORE_MOUNT_CHECK_ERRORS,
       mediaLocation: dto.IMMICH_MEDIA_LOCATION,
+      backend: dto.IMMICH_STORAGE_BACKEND,
+      s3: {
+        bucket: dto.IMMICH_S3_BUCKET,
+        region: dto.IMMICH_S3_REGION,
+        endpoint: dto.IMMICH_S3_ENDPOINT,
+        prefix: dto.IMMICH_S3_PREFIX,
+        forcePathStyle: dto.IMMICH_S3_FORCE_PATH_STYLE ?? !!dto.IMMICH_S3_ENDPOINT,
+      },
     },
 
     telemetry: {
